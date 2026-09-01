@@ -183,6 +183,8 @@ PERSONALIZATION RULES
 - Adapt the amount of support and difficulty to the student's learning persona.
 - Keep the questions appropriate for middle-school students.
 - Do not introduce unrelated mathematical skills.
+- For each question, include a concise, exact "answer" field (e.g. a number or simplified fraction) that can be checked with a plain string match.
+
 
 Return ONLY valid JSON in this format:
 
@@ -193,20 +195,21 @@ Return ONLY valid JSON in this format:
     "questions": [
         {{
             "question": "...",
+            "answer": "...",
             "hint_or_tip": "..."
         }},
         {{
             "question": "...",
+            "answer": "...",
             "hint_or_tip": "..."
         }},
         {{
             "question": "...",
+            "answer": "...",
             "hint_or_tip": "..."
         }}
     ]
 }}
-
-
 """
 
     response = client.models.generate_content(
@@ -351,10 +354,31 @@ def main():
         st.caption(f"Skill: {gen['skill']}")
         st.caption(gen["rationale"])
     
+        if "gen_answers" not in st.session_state:
+            st.session_state.gen_answers = {}
+        
         for i, q in enumerate(gen["questions"], start=1):
+            key = f"gen_q{i}"
             st.write(f"**{i}. {q['question']}**")
-            st.caption(f"💡 {q['hint_or_tip']}")
-    
+        
+            show_hint_key = f"{key}_show_hint"
+            if st.button(f"Show tip", key=f"{key}_hintbtn"):
+                st.session_state[show_hint_key] = True
+            if st.session_state.get(show_hint_key):
+                st.info(f"💡 {q['hint_or_tip']}")
+        
+            user_answer = st.text_input("Your answer", key=f"{key}_input")
+        
+            if st.button("Check answer", key=f"{key}_check"):
+                correct = user_answer.strip().lower() == q["answer"].strip().lower()
+                st.session_state.gen_answers[key] = correct
+        
+            if key in st.session_state.gen_answers:
+                if st.session_state.gen_answers[key]:
+                    st.success("✅ Correct!")
+                else:
+                    st.error(f"❌ Not quite. Correct answer: {q['answer']}")    
+                    
         if st.button("Start over"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
