@@ -31,8 +31,10 @@ from google import genai
 # ------------------------------------------------------------------
 # Config
 # ------------------------------------------------------------------
-PIPELINE_PATH = "student_clustering_pipeline.joblib"
-DB_PATH = "student_history.db"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PIPELINE_PATH = os.path.join(BASE_DIR, "student_clustering_pipeline.joblib")
+DB_PATH = os.path.join(BASE_DIR, "student_history.db")
 
 FIXED_ASSIGNMENT = [
     {
