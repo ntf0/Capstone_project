@@ -357,28 +357,41 @@ def main():
         if "gen_answers" not in st.session_state:
             st.session_state.gen_answers = {}
         
+        MAX_ATTEMPTS = 3
+        
         for i, q in enumerate(gen["questions"], start=1):
             key = f"gen_q{i}"
             st.write(f"**{i}. {q['question']}**")
         
+            attempts_key = f"{key}_attempts"
+            if attempts_key not in st.session_state:
+                st.session_state[attempts_key] = 0
+        
             show_hint_key = f"{key}_show_hint"
-            if st.button(f"Show tip", key=f"{key}_hintbtn"):
+            if st.button("Show tip", key=f"{key}_hintbtn"):
                 st.session_state[show_hint_key] = True
             if st.session_state.get(show_hint_key):
                 st.info(f"💡 {q['hint_or_tip']}")
         
-            user_answer = st.text_input("Your answer", key=f"{key}_input")
-        
-            if st.button("Check answer", key=f"{key}_check"):
-                correct = user_answer.strip().lower() == q["answer"].strip().lower()
-                st.session_state.gen_answers[key] = correct
-        
+            # Once solved (or attempts exhausted), lock the question and show the outcome
             if key in st.session_state.gen_answers:
                 if st.session_state.gen_answers[key]:
                     st.success("✅ Correct!")
                 else:
-                    st.error(f"❌ Not quite. Correct answer: {q['answer']}")    
-                    
+                    st.error(f"❌ Out of attempts. Correct answer: {q['answer']}")
+            else:
+                user_answer = st.text_input("Your answer", key=f"{key}_input")
+        
+                if st.button("Check answer", key=f"{key}_check"):
+                    st.session_state[attempts_key] += 1
+                    correct = user_answer.strip().lower() == q["answer"].strip().lower()
+        
+                    if correct or st.session_state[attempts_key] >= MAX_ATTEMPTS:
+                        st.session_state.gen_answers[key] = correct
+                        st.rerun()
+                    else:
+                        remaining = MAX_ATTEMPTS - st.session_state[attempts_key]
+                        st.warning(f"Not quite — try again. ({remaining} attempt{'s' if remaining != 1 else ''} left)")                    
         if st.button("Start over"):
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
