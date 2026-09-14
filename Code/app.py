@@ -81,8 +81,13 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             student_id TEXT,
             timestamp TEXT,
-            accuracy REAL,
+            accuracy_rate REAL,
             avg_attempts REAL,
+            retry_rate REAL,
+            avg_hint_dependency REAL,
+            median_response_time REAL,
+            max_opportunity INTEGER,
+            total_interactions INTEGER,
             persona TEXT,
             generated_assignment TEXT
         )
@@ -91,24 +96,35 @@ def init_db():
     conn.commit()
     conn.close()
 
-
-def log_attempt(student_id, accuracy, avg_attempts, persona, generated_assignment):
+def log_attempt(student_id, features, persona, generated_assignment):
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
-        "INSERT INTO attempts (student_id, timestamp, accuracy, avg_attempts, persona, generated_assignment) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        """
+        INSERT INTO attempts (
+            student_id, timestamp,
+            accuracy_rate, avg_attempts, retry_rate,
+            avg_hint_dependency, median_response_time,
+            max_opportunity, total_interactions,
+            persona, generated_assignment
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
         (
             student_id,
             datetime.now().isoformat(),
-            accuracy,
-            avg_attempts,
+            features["accuracy_rate"],
+            features["avg_attempts"],
+            features["retry_rate"],
+            features["avg_hint_dependency"],
+            features["median_response_time"],
+            features["max_opportunity"],
+            features["total_interactions"],
             persona,
             json.dumps(generated_assignment),
         ),
     )
     conn.commit()
     conn.close()
-
 
 # ------------------------------------------------------------------
 # Model + AI helpers
@@ -238,7 +254,7 @@ Return ONLY valid JSON in this format:
 def main():
     st.set_page_config(page_title="AI Personalized Learning", page_icon="🎓")
     init_db()
-
+    MAX_ATTEMPTS = 10
     if "stage" not in st.session_state:
         st.session_state.stage = "login"
     if "log" not in st.session_state:
@@ -274,6 +290,8 @@ def main():
             st.session_state[f"{key_prefix}_attempts"] = 0
         if f"{key_prefix}_hints_used" not in st.session_state:
             st.session_state[f"{key_prefix}_hints_used"] = 0
+        if f"{key_prefix}_first_correct" not in st.session_state:
+            st.session_state[f"{key_prefix}_first_correct"] = None
 
         # Hint button
         hints = q["hints"]
@@ -290,16 +308,22 @@ def main():
             st.session_state[f"{key_prefix}_attempts"] += 1
             correct = answer.strip().lower() == q["answer"].strip().lower()
 
-            if correct or st.session_state[f"{key_prefix}_attempts"] >= 3:
+            # Only the VERY FIRST attempt determines accuracy for the model.
+            # Later attempts can still let the student progress, but don't
+            # count as "correct" for the accuracy_rate feature.
+            if st.session_state[f"{key_prefix}_attempts"] == 1:
+                st.session_state[f"{key_prefix}_first_correct"] = correct
+
+            if correct or st.session_state[f"{key_prefix}_attempts"] >= MAX_ATTEMPTS:
                 response_time = time.time() - st.session_state.q_start_time
                 st.session_state.log.append(
                     {
-                        "correct": correct,
+                        "correct": st.session_state[f"{key_prefix}_first_correct"],
                         "attempts": st.session_state[f"{key_prefix}_attempts"],
                         "hints_used": st.session_state[f"{key_prefix}_hints_used"],
                         "hints_available": len(hints),
                         "response_time_sec": response_time,
-                        "opportunity": idx + 1,  # simple proxy: position in this session
+                        "opportunity": idx + 1,
                         "skill": q["skill"],
                     }
                 )
@@ -307,7 +331,8 @@ def main():
                 st.session_state.q_start_time = time.time()
                 st.rerun()
             else:
-                st.warning("Not quite -- try again.")
+                remaining = MAX_ATTEMPTS - st.session_state[f"{key_prefix}_attempts"]
+                st.warning(f"Not quite — try again. ({remaining} attempt{'s' if remaining != 1 else ''} left)")
         return
 
     # ---------------- Stage 3: Results + AI-generated follow-up ----------------
@@ -340,11 +365,10 @@ def main():
                     features,
                     skill
                 )
-    
+
                 log_attempt(
                     st.session_state.student_id,
-                    features["accuracy_rate"],
-                    features["avg_attempts"],
+                    features,
                     persona,
                     st.session_state.generated,
                 )
@@ -358,9 +382,7 @@ def main():
     
         if "gen_answers" not in st.session_state:
             st.session_state.gen_answers = {}
-        
-        MAX_ATTEMPTS = 3
-        
+                
         for i, q in enumerate(gen["questions"], start=1):
             key = f"gen_q{i}"
             st.write(f"**{i}. {q['question']}**")
